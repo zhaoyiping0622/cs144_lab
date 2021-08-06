@@ -9,6 +9,17 @@
 #include <functional>
 #include <queue>
 
+class Timer {
+  private:
+    int64_t _time;
+
+  public:
+    void reset(int64_t time) { _time = time; }
+    bool end() { return _time <= 0; }
+    void minus(int64_t time) { _time -= time; }
+    Timer(int64_t time = 0) : _time(time) {}
+};
+
 //! \brief The "sender" part of a TCP implementation.
 
 //! Accepts a ByteStream, divides it up into segments and sends the
@@ -31,6 +42,26 @@ class TCPSender {
 
     //! the (absolute) sequence number for the next byte to be sent
     uint64_t _next_seqno{0};
+
+    uint64_t _bytes_in_flight{0};
+
+    unsigned int _consecutive_retransmissions{0};
+
+    unsigned int _current_rto;
+
+    std::queue<TCPSegment> _outstanding_segments{};
+
+    unsigned int _current_window_size{1};
+
+    uint64_t _prev_ackno{0};
+
+    Timer _timer{};
+
+    void remove_segments();
+
+    void send_segment(const TCPSegment segment);
+
+    TCPSegment read_data(size_t size);
 
   public:
     //! Initialize a TCPSender
