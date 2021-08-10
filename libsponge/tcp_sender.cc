@@ -53,7 +53,11 @@ TCPSegment TCPSender::read_data(size_t size) {
     TCPSegment segment;
     segment.header().seqno = wrap(stream_in().bytes_read() + 1, _isn);
     segment.payload() = Buffer(stream_in().read(min(size, TCPConfig::MAX_PAYLOAD_SIZE)));
-    if (stream_in().eof() && segment.length_in_sequence_space() + 1 <= size)
+    // static size_t siz=0;
+    // siz+=segment.payload().size();
+    // cerr<<siz<<" "<<stream_in().input_ended()<<" "<<stream_in().bytes_written()<<endl;
+    if (stream_in().eof() && segment.length_in_sequence_space() + 1 <= size &&
+        _next_seqno < stream_in().bytes_written() + 2)
         segment.header().fin = true;
     return segment;
 }
@@ -73,7 +77,9 @@ void TCPSender::fill_window() {
         return;
     }
     if (_current_window_size == 0 && _outstanding_segments.empty()) {
-        send_segment(read_data(1));
+        TCPSegment segment = read_data(1);
+        if (segment.length_in_sequence_space())
+            send_segment(segment);
         return;
     }
     while (bytes_in_flight() < _current_window_size && !stream_in().eof()) {
@@ -100,9 +106,9 @@ void TCPSender::fill_window() {
 //! \param window_size The remote receiver's advertised window size
 void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_size) {
     uint64_t absolute_ackno = unwrap(ackno, _isn, _next_seqno);
-    if(absolute_ackno>_next_seqno){
-      // invalid ackno
-      return;
+    if (absolute_ackno > _next_seqno) {
+        // invalid ackno
+        return;
     }
     _current_window_size = window_size;
     if (absolute_ackno > _prev_ackno) {
@@ -120,16 +126,14 @@ void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_si
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
 void TCPSender::tick(const size_t ms_since_last_tick) {
     _timer.minus(ms_since_last_tick);
-    if (_timer.end()) {
+    if (_timer.end() && _outstanding_segments.size()) {
         if (_current_window_size) {
             _current_rto *= 2;
             _consecutive_retransmissions++;
         }
-        if (_outstanding_segments.size()) {
-            auto now = _outstanding_segments.front();
-            _segments_out.push(now);
-            _timer.reset(_current_rto);
-        }
+        auto now = _outstanding_segments.front();
+        _segments_out.push(now);
+        _timer.reset(_current_rto);
     }
 }
 
@@ -137,7 +141,7 @@ unsigned int TCPSender::consecutive_retransmissions() const { return _consecutiv
 
 void TCPSender::send_empty_segment() {
     TCPSegment segment;
-    segment.header().seqno=wrap(_next_seqno, _isn);
+    segment.header().seqno = wrap(_next_seqno, _isn);
     _segments_out.push(segment);
 }
 
