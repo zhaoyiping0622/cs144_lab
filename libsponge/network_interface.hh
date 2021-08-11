@@ -1,12 +1,22 @@
 #ifndef SPONGE_LIBSPONGE_NETWORK_INTERFACE_HH
 #define SPONGE_LIBSPONGE_NETWORK_INTERFACE_HH
 
+#include "arp_message.hh"
 #include "ethernet_frame.hh"
 #include "tcp_over_ip.hh"
 #include "tun.hh"
 
+#include <list>
 #include <optional>
 #include <queue>
+#include <unordered_map>
+
+class ARPRecord {
+  public:
+    EthernetAddress ethernet_address;
+    uint32_t ip_address;
+    uint64_t time_out;
+};
 
 //! \brief A "network interface" that connects IP (the internet layer, or network layer)
 //! with Ethernet (the network access layer, or link layer).
@@ -31,6 +41,8 @@
 //! and learns or replies as necessary.
 class NetworkInterface {
   private:
+    const uint64_t ARP_REQUEST_TIMEOUT = 5 * 1000;
+    const uint64_t ARP_MAPPING_TIMEOUT = 30 * 1000;
     //! Ethernet (known as hardware, network-access-layer, or link-layer) address of the interface
     EthernetAddress _ethernet_address;
 
@@ -39,6 +51,20 @@ class NetworkInterface {
 
     //! outbound queue of Ethernet frames that the NetworkInterface wants sent
     std::queue<EthernetFrame> _frames_out{};
+
+    uint64_t _current_time{0};
+
+    std::unordered_map<uint32_t, ARPRecord> _records{};
+
+    std::list<ARPRecord> _wait_reply{};
+
+    std::list<std::pair<uint32_t, InternetDatagram>> _wait_to_send{};
+
+    void send_arp_request(uint32_t next_hop_ip);
+
+    void reply_arp_request(const ARPMessage &arp_message);
+
+    void update_records(uint32_t ip_address, EthernetAddress ethernet_address);
 
   public:
     //! \brief Construct a network interface with given Ethernet (network-access-layer) and IP (internet-layer) addresses
